@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+    <title>Claude Usage</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="titlebar">
+        <div class="brand">
+          <span class="dot" id="statusDot"></span>
+          <div class="brand-text">
+            <div class="brand-title">Claude Max</div>
+            <div class="brand-sub" id="planSub">Usage tracker</div>
+          </div>
+        </div>
+        <div class="titlebar-actions">
+          <button class="icon-btn" id="btnRefresh" title="Refresh now" aria-label="Refresh">
+            <svg viewBox="0 0 16 16" width="15" height="15"><path fill="currentColor" d="M13.6 2.7a.6.6 0 0 0-1 .4v1.2A6 6 0 1 0 14 8a.6.6 0 0 0-1.2 0A4.8 4.8 0 1 1 11.8 5H10a.6.6 0 0 0 0 1.2h3a.6.6 0 0 0 .6-.6v-3z"/></svg>
+          </button>
+          <button class="icon-btn" id="btnSettings" title="Edit settings" aria-label="Settings">
+            <svg viewBox="0 0 16 16" width="15" height="15"><path fill="currentColor" d="M8 5.2A2.8 2.8 0 1 0 8 10.8 2.8 2.8 0 0 0 8 5.2zm0 1.2a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z"/><path fill="currentColor" d="M7 1.2a.6.6 0 0 0-.59.48l-.2 1a4.9 4.9 0 0 0-1 .58l-.96-.34a.6.6 0 0 0-.72.27l-1 1.73a.6.6 0 0 0 .13.76l.77.66a4.9 4.9 0 0 0 0 1.16l-.77.66a.6.6 0 0 0-.13.76l1 1.73a.6.6 0 0 0 .72.27l.96-.34c.31.24.65.44 1 .58l.2 1a.6.6 0 0 0 .59.48h2a.6.6 0 0 0 .59-.48l.2-1c.36-.14.7-.34 1-.58l.96.34a.6.6 0 0 0 .72-.27l1-1.73a.6.6 0 0 0-.13-.76l-.77-.66a4.9 4.9 0 0 0 0-1.16l.77-.66a.6.6 0 0 0 .13-.76l-1-1.73a.6.6 0 0 0-.72-.27l-.96.34a4.9 4.9 0 0 0-1-.58l-.2-1A.6.6 0 0 0 9 1.2H7z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="content">
+        <div class="src-banner" id="srcBanner" hidden></div>
+
+        <!-- Current session (authoritative % from your account) -->
+        <section class="card primary">
+          <div class="gauge-wrap">
+            <div id="sessionGauge" class="gauge"></div>
+            <div class="gauge-center">
+              <div class="gauge-pct" id="sessionPct">—</div>
+              <div class="gauge-cap" id="sessionCap">of limit</div>
+            </div>
+          </div>
+          <div class="primary-meta">
+            <div class="primary-label">Current session</div>
+            <div class="primary-reset" id="sessionReset">—</div>
+            <div class="primary-sub" id="sessionSub"></div>
+          </div>
+        </section>
+
+        <!-- Weekly — all models (authoritative %) -->
+        <section class="card tile">
+          <div class="tile-head">This week <span class="badge">all models</span></div>
+          <div class="tile-tokens" id="weekPct">—</div>
+          <div class="bar"><div class="bar-fill" id="weekBar"></div></div>
+          <div class="tile-foot" id="weekFoot">—</div>
+        </section>
+
+        <!-- Per-model weekly limits (Opus, Fable, …) — built dynamically -->
+        <div class="tile-row" id="modelTiles"></div>
+
+        <!-- Claude Code token detail (this machine only) -->
+        <section class="card detail">
+          <div class="detail-title">Claude Code usage <span class="muted">· this machine</span></div>
+          <div class="segmented" role="tablist">
+            <button class="seg" data-win="block" role="tab">Session</button>
+            <button class="seg" data-win="today" role="tab">Today</button>
+            <button class="seg is-active" data-win="week" role="tab">Week</button>
+          </div>
+
+          <div class="value-row">
+            <div>
+              <div class="value-label">API-equivalent value</div>
+              <div class="value-amount" id="detailValue">$—</div>
+            </div>
+            <div class="value-side">
+              <div class="value-msgs" id="detailMsgs">— msgs</div>
+              <div class="value-note">what these tokens<br />would cost on API</div>
+            </div>
+          </div>
+
+          <div class="section-label">Token composition</div>
+          <div class="composition" id="composition"></div>
+          <div class="legend" id="compLegend"></div>
+
+          <div class="section-label">By model</div>
+          <div class="models" id="models"></div>
+        </section>
+      </main>
+
+      <footer class="footnote">
+        <div id="caveat">Limits are <b>live from your Claude account</b>. The token detail below is Claude Code on <b>this machine</b> only.</div>
+        <div class="updated" id="updated"></div>
+      </footer>
+    </div>
+    <script src="renderer.js"></script>
+  </body>
+</html>
