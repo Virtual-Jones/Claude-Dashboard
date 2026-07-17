@@ -59,6 +59,18 @@ function agoText(ts) {
   if (m < 60) return `Updated ${m}m ago`;
   return `Updated ${Math.floor(m / 60)}h ago`;
 }
+// Compact "how long since" for the last local Claude Code message. Without this
+// an idle Code section (no new messages) looks indistinguishable from a stuck one.
+function sinceText(ts) {
+  const ms = Date.now() - ts;
+  if (ms < 60000) return 'just now';
+  const m = Math.floor(ms / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d >= 1) return `${d}d ago`;
+  if (h >= 1) return `${h}h ago`;
+  return `${m}m ago`;
+}
 
 function modelInfo(id) {
   const m = String(id).toLowerCase();
@@ -126,6 +138,9 @@ function render() {
   updateReset();
   renderDetail();
   const local = latest.local || {};
+  $('lastActive').textContent = local.lastActivity
+    ? ` · last active ${sinceText(local.lastActivity)}`
+    : '';
   $('updated').textContent =
     agoText(latest.generatedAt) + ` · ${local.filesScanned || 0} logs`;
 }
