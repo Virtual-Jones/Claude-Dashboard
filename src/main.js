@@ -36,11 +36,15 @@ const SMOKE = process.argv.includes('--smoke') || process.env.CLAUDE_WIDGET_SMOK
 // ---------------------------------------------------------------------------
 // Single-instance lock (must run before creating any window/tray)
 // ---------------------------------------------------------------------------
-if (!app.requestSingleInstanceLock()) {
+if (SMOKE) {
+  // Smoke mode renders offscreen and exits; it must not take the single-instance
+  // lock (so it can run alongside a real instance without disturbing it).
+  app.whenReady().then(runSmoke);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showWindow());
-  app.whenReady().then(SMOKE ? runSmoke : init);
+  app.whenReady().then(init);
 }
 
 async function runSmoke() {
@@ -57,10 +61,16 @@ async function runSmoke() {
       live = { ok: false, error: 'mock load failed: ' + e.message };
     }
   }
+  let mockLiveAt = Date.now();
+  if (process.env.CLAUDE_WIDGET_MOCK_STALE && live.ok) {
+    live = { ...live, stale: true, error: 'Usage API returned HTTP 429.', code: 'HTTP' };
+    mockLiveAt = Date.now() - 3 * 3600 * 1000; // pretend last success was 3h ago
+  }
   latest = {
     generatedAt: Date.now(),
     metric: local.metric,
     filesScanned: local.filesScanned,
+    liveAt: mockLiveAt,
     live,
     local,
     bars: deriveBars(local, live),
@@ -328,30 +338,49 @@ function showWindow() {
 //   'skip'      -> never call the API; reuse the cached live result (file-watch)
 //   'throttled' -> call only if the cache is older than liveRefreshSeconds (timer)
 //   'force'     -> always call (startup + manual Refresh button)
-let liveCache = null;
-let liveAt = 0;
+let liveCache = null; // last SUCCESSFUL normalized result
+let liveAt = 0; // time of last success
+let liveTriedAt = 0; // time of last ATTEMPT (success or failure)
+let liveFails = 0; // consecutive failures
+let liveError = null;
+
+// Present the cached result, flagged stale if the most recent attempt failed.
+function cachedResult() {
+  if (!liveCache) return { ok: false, error: liveError || 'not fetched yet' };
+  if (liveFails > 0 && liveCache.ok) {
+    return { ...liveCache, stale: true, error: liveError, code: null };
+  }
+  return liveCache;
+}
 
 async function getLive(mode) {
   const now = Date.now();
-  const minMs = Math.max(20, cfg.liveRefreshSeconds || 60) * 1000;
-  if (mode === 'skip') {
-    return liveCache || { ok: false, error: 'not fetched yet' };
-  }
-  if (mode === 'throttled' && liveCache && liveCache.ok && now - liveAt < minMs) {
-    return liveCache; // still fresh enough
-  }
+  const base = Math.max(20, cfg.liveRefreshSeconds || 60) * 1000;
+  // Throttle by ATTEMPT (not just success), and back off exponentially on
+  // consecutive failures (capped at 15 min) so a rate-limited endpoint can
+  // recover instead of being hammered every timer tick.
+  const wait = liveFails > 0 ? Math.min(base * 2 ** liveFails, 15 * 60 * 1000) : base;
+
+  if (mode === 'skip') return cachedResult();
+  if (mode !== 'force' && liveTriedAt && now - liveTriedAt < wait) return cachedResult();
+
+  liveTriedAt = now;
   try {
     const data = await fetchUsage();
     liveCache = data;
     liveAt = now;
+    liveFails = 0;
+    liveError = null;
     return data;
   } catch (e) {
-    // On failure (e.g. 429/offline) keep showing the last good data as stale
-    // rather than dropping to the local-estimate fallback.
+    liveFails += 1;
+    liveError = e.message || String(e);
+    // Keep showing the last good data as stale rather than dropping to the
+    // local-estimate fallback outright.
     if (liveCache && liveCache.ok) {
-      return { ...liveCache, stale: true, error: e.message, code: e.code || null };
+      return { ...liveCache, stale: true, error: liveError, code: e.code || null };
     }
-    return { ok: false, error: e.message || String(e), code: e.code || null };
+    return { ok: false, error: liveError, code: e.code || null };
   }
 }
 

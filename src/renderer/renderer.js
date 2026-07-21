@@ -39,6 +39,15 @@ function liveErrorText(live) {
   const msg = live && live.error ? live.error : 'reason unknown';
   return `Live account usage unavailable (${msg}) — showing local estimate from Claude Code logs.`;
 }
+function staleText(live, liveAt) {
+  const age = liveAt ? sinceText(liveAt) : 'a while ago';
+  const err = live && live.error ? ` (${live.error})` : '';
+  let msg = `Live limits last updated ${age}${err} — showing last known values.`;
+  if (live && live.code === 'AUTH') {
+    msg += ' Run any Claude Code command to refresh your login.';
+  }
+  return msg;
+}
 function sevColor(p) {
   if (p >= 0.85) return '#E81123';
   if (p >= 0.6) return '#F7630C';
@@ -112,8 +121,15 @@ function render() {
 
   // Source banner + header subtitle
   const banner = $('srcBanner');
-  banner.hidden = isLive;
-  if (!isLive) banner.textContent = liveErrorText(live);
+  if (isLive && live.stale) {
+    banner.hidden = false;
+    banner.textContent = staleText(live, latest.liveAt);
+  } else if (!isLive) {
+    banner.hidden = false;
+    banner.textContent = liveErrorText(live);
+  } else {
+    banner.hidden = true;
+  }
   $('planSub').textContent = isLive
     ? live.stale
       ? 'Live · cached'
