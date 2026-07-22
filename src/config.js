@@ -42,10 +42,13 @@ const DEFAULT_CONFIG = {
 
   // How often to recompute LOCAL token detail from logs (cheap).
   refreshSeconds: 30,
-  // Minimum seconds between LIVE account API calls. The endpoint is rate-limited,
-  // so keep this modest; usage bars change slowly. The manual Refresh button and
-  // startup always fetch; file-change updates never do.
-  liveRefreshSeconds: 60,
+  // Minimum seconds between LIVE account API calls. The /api/oauth/usage endpoint
+  // is meant to be called on demand (like `/usage`), not polled, and rate-limits
+  // aggressively -- so keep this LONG. Usage bars change slowly, so 5 min is
+  // plenty. The widget also honors any Retry-After the server sends. The manual
+  // Refresh button and startup fetch (subject to Retry-After); file-change
+  // updates never call the API.
+  liveRefreshSeconds: 300,
   startOnLogin: false,
 };
 

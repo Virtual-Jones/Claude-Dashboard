@@ -343,6 +343,7 @@ let liveAt = 0; // time of last success
 let liveTriedAt = 0; // time of last ATTEMPT (success or failure)
 let liveFails = 0; // consecutive failures
 let liveError = null;
+let liveRetryUntil = 0; // hard "don't call before this" from a server Retry-After
 
 // Present the cached result, flagged stale if the most recent attempt failed.
 function cachedResult() {
@@ -355,12 +356,15 @@ function cachedResult() {
 
 async function getLive(mode) {
   const now = Date.now();
-  const base = Math.max(20, cfg.liveRefreshSeconds || 60) * 1000;
+  const base = Math.max(30, cfg.liveRefreshSeconds || 300) * 1000;
   // Throttle by ATTEMPT (not just success), and back off exponentially on
-  // consecutive failures (capped at 15 min) so a rate-limited endpoint can
-  // recover instead of being hammered every timer tick.
-  const wait = liveFails > 0 ? Math.min(base * 2 ** liveFails, 15 * 60 * 1000) : base;
+  // consecutive failures (capped at 30 min) so a rate-limited endpoint can
+  // recover instead of being poked every timer tick.
+  const wait = liveFails > 0 ? Math.min(base * 2 ** liveFails, 30 * 60 * 1000) : base;
 
+  // Honor a server Retry-After even for a manual 'force' -- calling again inside
+  // that window only prolongs the rate-limit.
+  if (now < liveRetryUntil) return cachedResult();
   if (mode === 'skip') return cachedResult();
   if (mode !== 'force' && liveTriedAt && now - liveTriedAt < wait) return cachedResult();
 
@@ -371,10 +375,16 @@ async function getLive(mode) {
     liveAt = now;
     liveFails = 0;
     liveError = null;
+    liveRetryUntil = 0;
     return data;
   } catch (e) {
     liveFails += 1;
     liveError = e.message || String(e);
+    if (e.retryAfterMs != null && e.retryAfterMs > 0) {
+      liveRetryUntil = now + e.retryAfterMs; // obey the server
+    } else if (e.code === 'RATE') {
+      liveRetryUntil = now + wait; // 429 without a hint: wait the backed-off interval
+    }
     // Keep showing the last good data as stale rather than dropping to the
     // local-estimate fallback outright.
     if (liveCache && liveCache.ok) {

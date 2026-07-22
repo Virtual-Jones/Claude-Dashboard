@@ -53,12 +53,45 @@ function httpGet(url, headers, timeout) {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
+      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
     });
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('request timed out')));
     req.end();
   });
+}
+
+// How long the server tells us to wait, in ms (Retry-After seconds/date, or a
+// ratelimit-reset header), or null if it didn't say.
+function parseRetryAfter(headers) {
+  if (!headers) return null;
+  const ra = headers['retry-after'];
+  if (ra != null) {
+    const n = Number(ra);
+    if (Number.isFinite(n)) return Math.max(0, n * 1000); // seconds
+    const t = Date.parse(ra);
+    if (!Number.isNaN(t)) return Math.max(0, t - Date.now()); // HTTP-date
+  }
+  const reset =
+    headers['anthropic-ratelimit-unified-reset'] ||
+    headers['x-ratelimit-reset'] ||
+    headers['ratelimit-reset'];
+  if (reset != null) {
+    const n = Number(reset);
+    if (Number.isFinite(n)) return Math.max(0, (n > 1e9 ? n * 1000 - Date.now() : n * 1000));
+    const t = Date.parse(reset);
+    if (!Number.isNaN(t)) return Math.max(0, t - Date.now());
+  }
+  return null;
+}
+
+// Collect rate-limit-related headers for diagnostics (probe output).
+function pickRateHeaders(headers) {
+  const out = {};
+  for (const k of Object.keys(headers || {})) {
+    if (/ratelimit|retry-after/i.test(k)) out[k] = headers[k];
+  }
+  return out;
 }
 
 async function fetchUsageRaw() {
@@ -68,7 +101,7 @@ async function fetchUsageRaw() {
     e.code = 'NO_TOKEN';
     throw e;
   }
-  const { status, body } = await httpGet(
+  const { status, body, headers } = await httpGet(
     USAGE_URL,
     {
       Authorization: `Bearer ${token}`,
@@ -86,7 +119,10 @@ async function fetchUsageRaw() {
   }
   if (status < 200 || status >= 300) {
     const e = new Error(`Usage API returned HTTP ${status}.`);
-    e.code = 'HTTP';
+    e.code = status === 429 ? 'RATE' : 'HTTP';
+    e.status = status;
+    e.retryAfterMs = parseRetryAfter(headers);
+    e.rateHeaders = pickRateHeaders(headers);
     throw e;
   }
   return JSON.parse(body);
@@ -199,6 +235,12 @@ async function probe() {
     for (const m of n.models) console.log(`  ${m.label.padEnd(15)} :`, fmt(m));
   } catch (e) {
     console.error('PROBE FAILED:', e.code ? `[${e.code}] ` : '', e.message);
+    if (e.retryAfterMs != null) {
+      console.error('  server says retry after:', Math.round(e.retryAfterMs / 1000), 'seconds (~' + Math.round(e.retryAfterMs / 60000) + ' min)');
+    }
+    if (e.rateHeaders && Object.keys(e.rateHeaders).length) {
+      console.error('  rate-limit headers:', JSON.stringify(e.rateHeaders, null, 2));
+    }
     process.exitCode = 1;
   }
 }
